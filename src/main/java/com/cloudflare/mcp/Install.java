@@ -29,7 +29,9 @@ final class Install {
             System.out.println("  4. Copy the token and set it:");
             System.out.println("     export CLOUDFLARE_API_TOKEN='your-token-here'");
             System.out.println();
-            System.out.println("Then re-run: java -jar cloudflare-mcp-1.0.0.jar --install");
+            String v = Install.class.getPackage().getImplementationVersion();
+            String jar = "cloudflare-mcp-" + (v != null ? v : "1.0.1") + ".jar";
+            System.out.println("Then re-run: java -jar " + jar + " --install");
             return;
         }
 
@@ -104,6 +106,8 @@ final class Install {
         System.out.println();
         System.out.println("Manual registration:");
         System.out.println("  claude mcp add --scope user --transport stdio cloudflare -- \\");
-        System.out.println("    java -jar /path/to/cloudflare-mcp-1.0.0.jar");
+        String v = Install.class.getPackage().getImplementationVersion();
+        String jar = "cloudflare-mcp-" + (v != null ? v : "1.0.1") + ".jar";
+        System.out.println("    java -jar /path/to/" + jar);
     }
 }

@@ -18,7 +18,12 @@ public class CloudflareMcpServer {
     private static final Logger log = LoggerFactory.getLogger(CloudflareMcpServer.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String SERVER_NAME = "cloudflare-mcp";
-    private static final String SERVER_VERSION = "1.0.0";
+    private static final String SERVER_VERSION = resolveVersion();
+
+    private static String resolveVersion() {
+        String v = CloudflareMcpServer.class.getPackage().getImplementationVersion();
+        return v != null ? v : "dev";
+    }
 
     public static void main(String[] args) {
         try {

@@ -9,6 +9,8 @@ record ServerConfig(
         boolean install,
         String claudeBinary,
         String apiToken,
+        String apiKey,
+        String email,
         List<String> includeTags,
         List<String> excludeTags,
         List<String> includePaths,
@@ -22,6 +24,22 @@ record ServerConfig(
 ) {
 
     private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]*)\\}");
+
+    /**
+     * Resolve the authentication strategy from env vars.
+     * Prefers Global API Key (CLOUDFLARE_API_KEY + CLOUDFLARE_EMAIL) if set,
+     * otherwise falls back to API Token (CLOUDFLARE_API_TOKEN).
+     * Returns null if no valid credentials are found.
+     */
+    CloudflareAuth resolveAuth() {
+        if (apiKey != null && !apiKey.isBlank() && email != null && !email.isBlank()) {
+            return CloudflareAuth.globalApiKey(apiKey, email);
+        }
+        if (apiToken != null && !apiToken.isBlank()) {
+            return CloudflareAuth.apiToken(apiToken);
+        }
+        return null;
+    }
 
     static ServerConfig fromArgs(String[] args) {
         boolean install = false;
@@ -55,9 +73,11 @@ record ServerConfig(
         }
 
         String apiToken = resolveEnvVars("${CLOUDFLARE_API_TOKEN}");
+        String apiKey = resolveEnvVars("${CLOUDFLARE_API_KEY}");
+        String email = resolveEnvVars("${CLOUDFLARE_EMAIL}");
 
         return new ServerConfig(
-                install, claudeBinary, apiToken,
+                install, claudeBinary, apiToken, apiKey, email,
                 List.copyOf(includeTags), List.copyOf(excludeTags),
                 List.copyOf(includePaths), List.copyOf(excludePaths),
                 List.copyOf(includeMethods), List.copyOf(excludeMethods),

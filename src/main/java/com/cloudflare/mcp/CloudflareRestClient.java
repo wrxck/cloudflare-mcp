@@ -138,6 +138,139 @@ public final class CloudflareRestClient {
         return Map.of("dnssec", "enabled");
     }
 
+    // --- Bot Management ---
+
+    public Map<String, Object> enableBotFightMode(String zoneId) {
+        String json = put("/zones/" + zoneId + "/bot_management",
+                "{\"enable_js\":true,\"fight_mode\":true,\"ai_bots_protection\":\"block\"}");
+        checkSuccess(json);
+        return Map.of("bot_fight_mode", "enabled");
+    }
+
+    // --- Managed Rulesets ---
+
+    /**
+     * Deploy a managed ruleset to a zone phase.
+     * Used for WAF free managed rules and DDoS overrides.
+     */
+    public Map<String, Object> deployManagedRuleset(String zoneId, String phase,
+                                                      String managedRulesetId) {
+        String body = """
+                {"rules":[{"action":"execute","expression":"true",\
+                "action_parameters":{"id":"%s"}}]}
+                """.formatted(managedRulesetId);
+        String json = put("/zones/" + zoneId + "/rulesets/phases/" + phase + "/entrypoint", body);
+        checkSuccess(json);
+        return Map.of("phase", phase, "status", "deployed");
+    }
+
+    /**
+     * Get the entrypoint ruleset for a zone phase. Returns null if none deployed.
+     */
+    public JsonNode getEntrypointRuleset(String zoneId, String phase) {
+        try {
+            String json = get("/zones/" + zoneId + "/rulesets/phases/" + phase + "/entrypoint");
+            return MAPPER.readTree(json).get("result");
+        } catch (CloudflareApiException e) {
+            if (e.getMessage().contains("404")) return null;
+            throw e;
+        } catch (Exception e) {
+            throw new CloudflareApiException("Failed to parse entrypoint ruleset: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * List account-level managed rulesets to discover IDs.
+     */
+    public List<Map<String, Object>> listAccountRulesets() {
+        String json = get("/accounts/" + accountId + "/rulesets");
+        try {
+            JsonNode root = MAPPER.readTree(json);
+            checkSuccess(json);
+            var result = new ArrayList<Map<String, Object>>();
+            for (JsonNode rs : root.get("result")) {
+                var r = new LinkedHashMap<String, Object>();
+                r.put("id", rs.get("id").asText());
+                r.put("name", rs.has("name") ? rs.get("name").asText() : "");
+                r.put("kind", rs.has("kind") ? rs.get("kind").asText() : "");
+                r.put("phase", rs.has("phase") ? rs.get("phase").asText() : "");
+                result.add(r);
+            }
+            return result;
+        } catch (CloudflareApiException e) { throw e; }
+        catch (Exception e) { throw new CloudflareApiException("Failed to parse rulesets: " + e.getMessage(), e); }
+    }
+
+    // --- Managed Transforms ---
+
+    public JsonNode getManagedHeaders(String zoneId) {
+        try {
+            String json = get("/zones/" + zoneId + "/managed_headers");
+            return MAPPER.readTree(json);
+        } catch (Exception e) {
+            throw new CloudflareApiException("Failed to get managed headers: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Enable specific managed transforms by ID.
+     * Fetches current state, enables the requested transforms, and PATCHes back.
+     */
+    public Map<String, Object> enableManagedTransforms(String zoneId, List<String> requestTransformIds,
+                                                         List<String> responseTransformIds) {
+        try {
+            JsonNode current = getManagedHeaders(zoneId);
+            var enabled = new ArrayList<String>();
+
+            // Build updated arrays
+            var reqHeaders = new ArrayList<Map<String, Object>>();
+            var resHeaders = new ArrayList<Map<String, Object>>();
+
+            if (current.has("managed_request_headers")) {
+                for (JsonNode h : current.get("managed_request_headers")) {
+                    var entry = new LinkedHashMap<String, Object>();
+                    String id = h.get("id").asText();
+                    entry.put("id", id);
+                    boolean shouldEnable = requestTransformIds.contains(id);
+                    entry.put("enabled", shouldEnable || h.get("enabled").asBoolean());
+                    if (shouldEnable) enabled.add(id);
+                    reqHeaders.add(entry);
+                }
+            }
+            if (current.has("managed_response_headers")) {
+                for (JsonNode h : current.get("managed_response_headers")) {
+                    var entry = new LinkedHashMap<String, Object>();
+                    String id = h.get("id").asText();
+                    entry.put("id", id);
+                    boolean shouldEnable = responseTransformIds.contains(id);
+                    entry.put("enabled", shouldEnable || h.get("enabled").asBoolean());
+                    if (shouldEnable) enabled.add(id);
+                    resHeaders.add(entry);
+                }
+            }
+
+            var body = new LinkedHashMap<String, Object>();
+            body.put("managed_request_headers", reqHeaders);
+            body.put("managed_response_headers", resHeaders);
+            String json = patch("/zones/" + zoneId + "/managed_headers", MAPPER.writeValueAsString(body));
+            checkSuccess(json);
+
+            return Map.of("enabled", enabled);
+        } catch (CloudflareApiException e) { throw e; }
+        catch (Exception e) { throw new CloudflareApiException("Failed to update managed transforms: " + e.getMessage(), e); }
+    }
+
+    // --- URL Normalization ---
+
+    public Map<String, Object> enableUrlNormalization(String zoneId) {
+        String body = """
+                {"type":"cloudflare","scope":"incoming"}
+                """;
+        String json = put("/zones/" + zoneId + "/url_normalization", body);
+        checkSuccess(json);
+        return Map.of("url_normalization", "enabled");
+    }
+
     // --- Generic HTTP (public for advanced use) ---
 
     public String get(String path) { return request("GET", path, null); }

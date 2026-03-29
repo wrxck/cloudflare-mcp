@@ -20,12 +20,12 @@ final class RequestBuilder {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String BASE_URL = "https://api.cloudflare.com/client/v4";
 
-    private final String apiToken;
+    private final CloudflareAuth auth;
     private final int connectTimeoutSeconds;
     private final int requestTimeoutSeconds;
 
-    RequestBuilder(String apiToken, int connectTimeoutSeconds, int requestTimeoutSeconds) {
-        this.apiToken = apiToken;
+    RequestBuilder(CloudflareAuth auth, int connectTimeoutSeconds, int requestTimeoutSeconds) {
+        this.auth = auth;
         this.connectTimeoutSeconds = connectTimeoutSeconds;
         this.requestTimeoutSeconds = requestTimeoutSeconds;
     }
@@ -43,8 +43,9 @@ final class RequestBuilder {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(requestTimeoutSeconds))
-                .header("Authorization", "Bearer " + apiToken)
                 .header("Content-Type", "application/json");
+
+        auth.applyHeaders(builder);
 
         String upperMethod = method.toUpperCase();
         switch (upperMethod) {

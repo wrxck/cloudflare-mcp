@@ -34,11 +34,13 @@ public class CloudflareMcpServer {
                 return;
             }
 
-            String apiToken = config.apiToken();
-            if (apiToken == null || apiToken.isBlank()) {
-                log.error("CLOUDFLARE_API_TOKEN environment variable is required");
-                System.err.println("Error: CLOUDFLARE_API_TOKEN environment variable is not set.");
-                System.err.println("Create an API token at https://dash.cloudflare.com/profile/api-tokens");
+            CloudflareAuth auth = config.resolveAuth();
+            if (auth == null) {
+                log.error("No Cloudflare credentials found");
+                System.err.println("Error: No Cloudflare credentials configured.");
+                System.err.println("Set one of:");
+                System.err.println("  - CLOUDFLARE_API_KEY + CLOUDFLARE_EMAIL (Global API Key)");
+                System.err.println("  - CLOUDFLARE_API_TOKEN (scoped API Token)");
                 System.exit(1);
             }
 
@@ -47,7 +49,7 @@ public class CloudflareMcpServer {
 
             RateLimiter rateLimiter = new RateLimiter(config.maxRequestsPerMinute());
             RequestBuilder requestBuilder = new RequestBuilder(
-                    apiToken, config.connectTimeoutSeconds(), config.requestTimeoutSeconds());
+                    auth, config.connectTimeoutSeconds(), config.requestTimeoutSeconds());
             HttpApiClient apiClient = new HttpApiClient(
                     requestBuilder, rateLimiter, config.connectTimeoutSeconds(), config.maxResponseLength());
 

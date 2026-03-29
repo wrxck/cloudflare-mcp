@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class ServerConfigTest {
@@ -96,6 +98,49 @@ class ServerConfigTest {
             ServerConfig config = ServerConfig.fromArgs(new String[]{"--include-tags", "DNS Records"});
             assertThrows(UnsupportedOperationException.class, () ->
                     config.includeTags().add("extra"));
+        }
+    }
+
+    @Nested
+    class ResolveAuth {
+
+        @Test
+        void prefers_global_api_key_over_token() {
+            var config = new ServerConfig(
+                    false, "claude", "my-token", "my-key", "me@example.com",
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    240, 50000, 10, 30);
+            var auth = config.resolveAuth();
+            assertInstanceOf(CloudflareAuth.GlobalApiKey.class, auth);
+        }
+
+        @Test
+        void falls_back_to_api_token() {
+            var config = new ServerConfig(
+                    false, "claude", "my-token", null, null,
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    240, 50000, 10, 30);
+            var auth = config.resolveAuth();
+            assertInstanceOf(CloudflareAuth.ApiToken.class, auth);
+        }
+
+        @Test
+        void returns_null_when_no_credentials() {
+            var config = new ServerConfig(
+                    false, "claude", null, null, null,
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    240, 50000, 10, 30);
+            assertNull(config.resolveAuth());
+        }
+
+        @Test
+        void ignores_blank_api_key() {
+            var config = new ServerConfig(
+                    false, "claude", "my-token", "  ", "",
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    240, 50000, 10, 30);
+            var auth = config.resolveAuth();
+            assertInstanceOf(CloudflareAuth.ApiToken.class, auth);
         }
     }
 

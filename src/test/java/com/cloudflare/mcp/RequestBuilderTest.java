@@ -15,7 +15,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class RequestBuilderTest {
 
-    private final RequestBuilder builder = new RequestBuilder("test-token", 10, 30);
+    private final RequestBuilder builder = new RequestBuilder(
+            CloudflareAuth.apiToken("test-token"), 10, 30);
 
     @Nested
     class BasicRequests {

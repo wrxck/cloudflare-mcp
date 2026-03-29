@@ -51,6 +51,26 @@ class CloudflareRestClientTest {
     }
 
     @Test
+    void constructsWithCloudflareAuth() {
+        var auth = CloudflareAuth.apiToken("test-token");
+        var client = new CloudflareRestClient(auth, "account-id", new RateLimiter(240));
+        assertNotNull(client);
+    }
+
+    @Test
+    void constructsWithGlobalApiKeyAuth() {
+        var auth = CloudflareAuth.globalApiKey("test-key", "user@example.com");
+        var client = new CloudflareRestClient(auth, "account-id", new RateLimiter(240));
+        assertNotNull(client);
+    }
+
+    @Test
+    void legacyConstructorStillWorks() {
+        var client = new CloudflareRestClient("test-token", "account-id", new RateLimiter(240));
+        assertNotNull(client);
+    }
+
+    @Test
     void detectsApiError() {
         String json = """
                 {"success": false, "errors": [{"code": 1003, "message": "Zone not found"}]}

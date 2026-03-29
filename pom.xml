@@ -6,7 +6,7 @@
 
     <groupId>io.github.wrxck</groupId>
     <artifactId>cloudflare-mcp</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <packaging>jar</packaging>
 
     <name>Cloudflare MCP Server</name>

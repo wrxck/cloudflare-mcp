@@ -26,19 +26,24 @@ public final class CloudflareRestClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String BASE_URL = "https://api.cloudflare.com/client/v4";
 
-    private final String apiToken;
+    private final CloudflareAuth auth;
     private final String accountId;
     private final RateLimiter rateLimiter;
     private final HttpClient httpClient;
 
-    public CloudflareRestClient(String apiToken, String accountId, RateLimiter rateLimiter) {
-        this.apiToken = apiToken;
+    public CloudflareRestClient(CloudflareAuth auth, String accountId, RateLimiter rateLimiter) {
+        this.auth = auth;
         this.accountId = accountId;
         this.rateLimiter = rateLimiter;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    /** Legacy constructor for backwards compatibility — uses API Token auth. */
+    public CloudflareRestClient(String apiToken, String accountId, RateLimiter rateLimiter) {
+        this(CloudflareAuth.apiToken(apiToken), accountId, rateLimiter);
     }
 
     // --- Zone operations ---
@@ -145,9 +150,10 @@ public final class CloudflareRestClient {
         try {
             var builder = HttpRequest.newBuilder()
                     .uri(URI.create(BASE_URL + path))
-                    .header("Authorization", "Bearer " + apiToken)
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(30));
+
+            auth.applyHeaders(builder);
 
             HttpRequest request = switch (method) {
                 case "GET" -> builder.GET().build();

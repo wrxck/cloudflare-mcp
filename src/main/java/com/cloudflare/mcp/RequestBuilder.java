@@ -42,8 +42,7 @@ final class RequestBuilder {
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(requestTimeoutSeconds))
-                .header("Content-Type", "application/json");
+                .timeout(Duration.ofSeconds(requestTimeoutSeconds));
 
         auth.applyHeaders(builder);
 

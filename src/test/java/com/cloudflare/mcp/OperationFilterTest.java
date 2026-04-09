@@ -13,7 +13,7 @@ class OperationFilterTest {
 
     private static ServerConfig configWithDefaults() {
         return new ServerConfig(
-                false, "claude", null,
+                false, "claude", null, null, null,
                 List.of(), List.of(),
                 List.of(), List.of(),
                 List.of(), List.of(),
@@ -23,7 +23,7 @@ class OperationFilterTest {
 
     private static ServerConfig configWithIncludeTags(String... tags) {
         return new ServerConfig(
-                false, "claude", null,
+                false, "claude", null, null, null,
                 List.of(tags), List.of(),
                 List.of(), List.of(),
                 List.of(), List.of(),
@@ -33,7 +33,7 @@ class OperationFilterTest {
 
     private static ServerConfig configWithExcludeTags(String... tags) {
         return new ServerConfig(
-                false, "claude", null,
+                false, "claude", null, null, null,
                 List.of(), List.of(tags),
                 List.of(), List.of(),
                 List.of(), List.of(),
@@ -43,7 +43,7 @@ class OperationFilterTest {
 
     private static ServerConfig configWithIncludeMethods(String... methods) {
         return new ServerConfig(
-                false, "claude", null,
+                false, "claude", null, null, null,
                 List.of(), List.of(),
                 List.of(), List.of(),
                 List.of(methods), List.of(),
@@ -53,7 +53,7 @@ class OperationFilterTest {
 
     private static ServerConfig configWithIncludePaths(String... paths) {
         return new ServerConfig(
-                false, "claude", null,
+                false, "claude", null, null, null,
                 List.of(), List.of(),
                 List.of(paths), List.of(),
                 List.of(), List.of(),

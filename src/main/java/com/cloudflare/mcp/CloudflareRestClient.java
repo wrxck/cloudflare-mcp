@@ -6,9 +6,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -62,7 +64,8 @@ public final class CloudflareRestClient {
     }
 
     public Map<String, Object> getZoneByName(String domain) {
-        String json = get("/zones?name=" + domain + "&account.id=" + accountId);
+        String encodedDomain = URLEncoder.encode(domain, StandardCharsets.UTF_8);
+        String json = get("/zones?name=" + encodedDomain + "&account.id=" + accountId);
         var zones = parseZoneListResponse(json);
         return zones.isEmpty() ? null : zones.getFirst();
     }

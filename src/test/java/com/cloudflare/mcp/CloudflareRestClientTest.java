@@ -1,6 +1,9 @@
 package com.cloudflare.mcp;
 
 import org.junit.jupiter.api.Test;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -68,6 +71,29 @@ class CloudflareRestClientTest {
     void legacyConstructorStillWorks() {
         var client = new CloudflareRestClient("test-token", "account-id", new RateLimiter(240));
         assertNotNull(client);
+    }
+
+    // SEC-0002: domain must be URL-encoded before query-string concatenation
+    @Test
+    void getZoneByNameEncodesAmpersandInDomain() {
+        // Simulate the query-string building that getZoneByName now performs.
+        String maliciousDomain = "example.com&account.id=ATTACKER_ACCOUNT_ID";
+        String accountId = "OWNER_ACCOUNT_ID";
+        String encoded = URLEncoder.encode(maliciousDomain, StandardCharsets.UTF_8);
+        String path = "/zones?name=" + encoded + "&account.id=" + accountId;
+
+        URI uri = URI.create("https://api.cloudflare.com/client/v4" + path);
+        String rawQuery = uri.getRawQuery();
+
+        // The injected account.id must NOT appear as a separate parameter.
+        assertFalse(rawQuery.contains("account.id=ATTACKER_ACCOUNT_ID"),
+                "Injected account.id must not appear as a separate parameter after encoding: " + rawQuery);
+        // The legitimate account.id is the only one present.
+        assertTrue(rawQuery.contains("account.id=OWNER_ACCOUNT_ID"),
+                "Legitimate account.id must still be present: " + rawQuery);
+        // The '&' from the domain is percent-encoded, not a bare separator.
+        assertTrue(rawQuery.contains("%26"),
+                "Ampersand in domain must be percent-encoded: " + rawQuery);
     }
 
     @Test

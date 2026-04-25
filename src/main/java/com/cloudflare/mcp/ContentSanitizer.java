@@ -34,9 +34,21 @@ final class ContentSanitizer {
     }
 
     static String sanitize(String content, String boundary, int maxLength) {
+        return sanitize(content, boundary, maxLength, 8);
+    }
+
+    static String sanitize(String content, String boundary, int maxLength, int maxRetries) {
         if (content == null) return null;
         String truncated = truncate(content, maxLength);
-        return boundary + "\n" + truncated + "\n" + boundary;
+        String current = boundary;
+        for (int i = 0; i < maxRetries; i++) {
+            if (!truncated.contains(current)) {
+                return current + "\n" + truncated + "\n" + current;
+            }
+            current = generateBoundary();
+        }
+        throw new IllegalStateException(
+                "Boundary collision persisted after " + maxRetries + " regenerations; cannot safely wrap content");
     }
 
     static String truncate(String content, int maxLength) {

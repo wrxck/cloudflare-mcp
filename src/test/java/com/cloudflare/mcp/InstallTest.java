@@ -56,6 +56,7 @@ class InstallTest {
     }
 
     @Test
+    @org.junit.jupiter.api.condition.DisabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
     void successful_registration_prints_examples() {
         Install.run("true", "token-123", "/tmp/app.jar");
         String out = stdout.toString(StandardCharsets.UTF_8);
@@ -64,6 +65,7 @@ class InstallTest {
     }
 
     @Test
+    @org.junit.jupiter.api.condition.DisabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
     void failed_registration_prints_manual_instructions() {
         Install.run("false", "token-123", "/tmp/app.jar");
         assertTrue(stderr.toString(StandardCharsets.UTF_8)

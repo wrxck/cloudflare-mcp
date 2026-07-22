@@ -1,6 +1,5 @@
 package com.cloudflare.mcp;
 
-import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.parameters.Parameter;
@@ -60,24 +59,19 @@ final class InputSchemaBuilder {
         return schema;
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
+    @SuppressWarnings("unchecked")
     private static void mergeRequestBody(RequestBody requestBody,
                                           Map<String, Object> properties,
                                           List<String> required) {
-        Content content = requestBody.getContent();
-        if (content == null || content.isEmpty()) return;
-
-        MediaType mediaType = content.get("application/json");
-        if (mediaType == null) {
-            mediaType = content.values().iterator().next();
-        }
+        MediaType mediaType = RequestBodies.selectMediaType(requestBody);
+        if (mediaType == null) return;
 
         Schema<?> bodySchema = mediaType.getSchema();
         if (bodySchema == null) return;
 
         Map<String, Object> converted = SchemaConverter.convert(bodySchema);
 
-        if ("object".equals(converted.get("type")) && converted.containsKey("properties")) {
+        if (RequestBodies.flattensIntoProperties(converted)) {
             Map<String, Object> bodyProps = (Map<String, Object>) converted.get("properties");
             bodyProps.forEach((name, propSchema) -> {
                 if (!properties.containsKey(name)) {
@@ -97,11 +91,10 @@ final class InputSchemaBuilder {
             if (requestBody.getDescription() != null) {
                 bodyProp.put("description", requestBody.getDescription());
             }
-            properties.put("body", bodyProp);
-            if (Boolean.TRUE.equals(requestBody.getRequired())) {
-                if (!required.contains("body")) {
-                    required.add("body");
-                }
+            properties.put(RequestBodies.RAW_BODY_ARG, bodyProp);
+            if (Boolean.TRUE.equals(requestBody.getRequired())
+                    && !required.contains(RequestBodies.RAW_BODY_ARG)) {
+                required.add(RequestBodies.RAW_BODY_ARG);
             }
         }
     }

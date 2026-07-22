@@ -107,6 +107,15 @@ class OperationFilterTest {
         }
 
         @Test
+        void include_tags_rejects_empty_tag_list() {
+            OperationFilter filter = new OperationFilter(configWithIncludeTags("DNS Records"));
+            Operation op = new Operation();
+            op.setTags(List.of());
+            op.setOperationId("test-op");
+            assertFalse(filter.accepts("/zones", PathItem.HttpMethod.GET, op));
+        }
+
+        @Test
         void include_tags_case_insensitive() {
             OperationFilter filter = new OperationFilter(configWithIncludeTags("dns records"));
             assertTrue(filter.accepts("/zones", PathItem.HttpMethod.GET, operationWithTags("DNS Records")));
@@ -157,6 +166,63 @@ class OperationFilterTest {
         }
     }
 
+    private static ServerConfig configWithExcludePaths(String... paths) {
+        return new ServerConfig(
+                false, "claude", null, null, null,
+                List.of(), List.of(),
+                List.of(), List.of(paths),
+                List.of(), List.of(),
+                240, 50000, 10, 30
+        );
+    }
+
+    private static ServerConfig configWithExcludeMethods(String... methods) {
+        return new ServerConfig(
+                false, "claude", null, null, null,
+                List.of(), List.of(),
+                List.of(), List.of(),
+                List.of(), List.of(methods),
+                240, 50000, 10, 30
+        );
+    }
+
+    @Nested
+    class ExcludeFiltering {
+
+        @Test
+        void exclude_paths_rejects_matching() {
+            OperationFilter filter = new OperationFilter(configWithExcludePaths("/zones/**"));
+            assertFalse(filter.accepts("/zones/123", PathItem.HttpMethod.GET, operationNoTags()));
+            assertTrue(filter.accepts("/workers", PathItem.HttpMethod.GET, operationNoTags()));
+        }
+
+        @Test
+        void exclude_methods_rejects_matching_case_insensitively() {
+            OperationFilter filter = new OperationFilter(configWithExcludeMethods("delete"));
+            assertFalse(filter.accepts("/zones", PathItem.HttpMethod.DELETE, operationNoTags()));
+            assertTrue(filter.accepts("/zones", PathItem.HttpMethod.GET, operationNoTags()));
+        }
+
+        @Test
+        void exclude_tags_ignores_untagged_operations() {
+            OperationFilter filter = new OperationFilter(configWithExcludeTags("Deprecated"));
+            assertTrue(filter.accepts("/zones", PathItem.HttpMethod.GET, operationNoTags()));
+        }
+
+        @Test
+        void exclude_wins_over_include_for_paths() {
+            var config = new ServerConfig(
+                    false, "claude", null, null, null,
+                    List.of(), List.of(),
+                    List.of("/zones/**"), List.of("/zones/private/**"),
+                    List.of(), List.of(),
+                    240, 50000, 10, 30);
+            OperationFilter filter = new OperationFilter(config);
+            assertTrue(filter.accepts("/zones/public", PathItem.HttpMethod.GET, operationNoTags()));
+            assertFalse(filter.accepts("/zones/private/x", PathItem.HttpMethod.GET, operationNoTags()));
+        }
+    }
+
     @Nested
     class GlobToPattern {
 
@@ -186,6 +252,14 @@ class OperationFilterTest {
             var pattern = OperationFilter.globToPattern("/api.v4");
             assertTrue(pattern.matcher("/api.v4").matches());
             assertFalse(pattern.matcher("/apixv4").matches());
+        }
+
+        @Test
+        void brace_alternation() {
+            var pattern = OperationFilter.globToPattern("/zones/{a,b}/x");
+            assertTrue(pattern.matcher("/zones/a/x").matches());
+            assertTrue(pattern.matcher("/zones/b/x").matches());
+            assertFalse(pattern.matcher("/zones/c/x").matches());
         }
     }
 }

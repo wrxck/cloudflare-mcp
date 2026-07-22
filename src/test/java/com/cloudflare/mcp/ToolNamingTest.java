@@ -116,11 +116,32 @@ class ToolNamingTest {
         }
 
         @Test
+        void suffixed_name_must_not_collide_with_independently_derived_name() {
+            var naming = new ToolNaming();
+            String first = naming.derive("op", "GET", "/a");      // "op"
+            String taken = naming.derive("op_2", "GET", "/b");    // "op_2"
+            String second = naming.derive("op", "GET", "/c");     // must NOT be "op_2"
+            assertEquals(3, java.util.Set.of(first, taken, second).size(),
+                    "derived names must be unique: " + java.util.List.of(first, taken, second));
+        }
+
+        @Test
         void truncates_long_names() {
             var naming = new ToolNaming();
             String longId = "a".repeat(100);
             String result = naming.derive(longId, "GET", "/");
             assertTrue(result.length() <= 64);
+        }
+
+        @Test
+        void suffixed_long_names_stay_within_limit_and_unique() {
+            var naming = new ToolNaming();
+            String longId = "b".repeat(100);
+            String first = naming.derive(longId, "GET", "/x");
+            String second = naming.derive(longId, "GET", "/y");
+            assertNotEquals(first, second);
+            assertTrue(second.length() <= 64);
+            assertTrue(second.endsWith("_2"));
         }
     }
 }

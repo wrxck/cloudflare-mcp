@@ -8,18 +8,11 @@ final class ResultHelper {
 
     static CallToolResult sanitizedResult(String responseBody, int maxLength) {
         String boundary = ContentSanitizer.generateBoundary();
-        String truncated = ContentSanitizer.truncate(responseBody, maxLength);
-        String wrapped = ContentSanitizer.sanitize(truncated, boundary, maxLength);
+        String wrapped = ContentSanitizer.sanitize(responseBody, boundary, maxLength);
         String securityContext = ContentSanitizer.buildSecurityContext(boundary);
         return CallToolResult.builder()
                 .addTextContent(securityContext)
                 .addTextContent(wrapped)
-                .build();
-    }
-
-    static CallToolResult textResult(String text) {
-        return CallToolResult.builder()
-                .addTextContent(text)
                 .build();
     }
 

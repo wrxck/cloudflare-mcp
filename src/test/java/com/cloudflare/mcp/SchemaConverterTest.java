@@ -247,5 +247,111 @@ class SchemaConverterTest {
             Map<String, Object> result = SchemaConverter.convert(schema);
             assertEquals(20, result.get("default"));
         }
+
+        @Test
+        void empty_composition_lists_ignored() {
+            ComposedSchema composed = new ComposedSchema();
+            composed.setAllOf(List.of());
+            composed.setOneOf(List.of());
+            composed.setAnyOf(List.of());
+            Map<String, Object> result = SchemaConverter.convert(composed);
+            assertFalse(result.containsKey("oneOf"));
+            assertFalse(result.containsKey("anyOf"));
+            assertEquals("object", result.get("type"));
+        }
+
+        @Test
+        void empty_enum_ignored() {
+            StringSchema schema = new StringSchema();
+            schema.setEnum(List.of());
+            Map<String, Object> result = SchemaConverter.convert(schema);
+            assertFalse(result.containsKey("enum"));
+        }
+
+        @Test
+        void empty_types_set_falls_back_to_object() {
+            Schema<?> schema = new Schema<>();
+            schema.setTypes(java.util.Set.of());
+            Map<String, Object> result = SchemaConverter.convert(schema);
+            assertEquals("object", result.get("type"));
+        }
+
+        @Test
+        void schema_with_no_information_defaults_to_object() {
+            Map<String, Object> result = SchemaConverter.convert(new Schema<>());
+            assertEquals("object", result.get("type"));
+        }
+
+        @Test
+        void type_taken_from_types_set_when_type_absent() {
+            Schema<?> schema = new Schema<>();
+            schema.setTypes(java.util.Set.of("string"));
+            Map<String, Object> result = SchemaConverter.convert(schema);
+            assertEquals("string", result.get("type"));
+        }
+
+        @Test
+        void object_inferred_from_properties_without_explicit_type() {
+            Schema<Object> schema = new Schema<>();
+            schema.setProperties(Map.of("name", new StringSchema()));
+            Map<String, Object> result = SchemaConverter.convert(schema);
+            assertEquals("object", result.get("type"));
+            assertTrue(result.containsKey("properties"));
+        }
+
+        @Test
+        void array_without_items_has_no_items_key() {
+            ArraySchema schema = new ArraySchema();
+            Map<String, Object> result = SchemaConverter.convert(schema);
+            assertEquals("array", result.get("type"));
+            assertFalse(result.containsKey("items"));
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void allOf_keeps_first_description() {
+            ObjectSchema s1 = new ObjectSchema();
+            s1.setDescription("first");
+            s1.addProperty("a", new StringSchema());
+            ObjectSchema s2 = new ObjectSchema();
+            s2.setDescription("second");
+            s2.addProperty("b", new StringSchema());
+
+            ComposedSchema composed = new ComposedSchema();
+            composed.setAllOf(List.of(s1, s2));
+
+            Map<String, Object> result = SchemaConverter.convert(composed);
+            assertEquals("first", result.get("description"));
+            Map<String, Object> props = (Map<String, Object>) result.get("properties");
+            assertEquals(2, props.size());
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void allOf_deduplicates_required() {
+            ObjectSchema s1 = new ObjectSchema();
+            s1.addProperty("a", new StringSchema());
+            s1.setRequired(List.of("a"));
+            ObjectSchema s2 = new ObjectSchema();
+            s2.addProperty("a", new StringSchema());
+            s2.setRequired(List.of("a"));
+
+            ComposedSchema composed = new ComposedSchema();
+            composed.setAllOf(List.of(s1, s2));
+
+            List<String> required = (List<String>) SchemaConverter.convert(composed).get("required");
+            assertEquals(List.of("a"), required);
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void oneOf_variants_are_converted() {
+            ComposedSchema composed = new ComposedSchema();
+            composed.setOneOf(List.of(new StringSchema(), new IntegerSchema()));
+            List<Map<String, Object>> variants =
+                    (List<Map<String, Object>>) SchemaConverter.convert(composed).get("oneOf");
+            assertEquals("string", variants.get(0).get("type"));
+            assertEquals("integer", variants.get(1).get("type"));
+        }
     }
 }

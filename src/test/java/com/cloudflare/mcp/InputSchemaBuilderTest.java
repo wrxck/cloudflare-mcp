@@ -155,6 +155,97 @@ class InputSchemaBuilderTest {
         }
 
         @Test
+        @SuppressWarnings("unchecked")
+        void non_object_body_exposed_as_body_arg() {
+            StringSchema bodySchema = new StringSchema();
+
+            MediaType mediaType = new MediaType();
+            mediaType.setSchema(bodySchema);
+            Content content = new Content();
+            content.addMediaType("text/plain", mediaType);
+            RequestBody requestBody = new RequestBody();
+            requestBody.setContent(content);
+            requestBody.setDescription("raw payload");
+            requestBody.setRequired(true);
+
+            Map<String, Object> result = InputSchemaBuilder.build(null, requestBody);
+            Map<String, Object> props = (Map<String, Object>) result.get("properties");
+            Map<String, Object> bodyProp = (Map<String, Object>) props.get("body");
+            assertEquals("string", bodyProp.get("type"));
+            assertEquals("raw payload", bodyProp.get("description"));
+            assertTrue(((java.util.List<String>) result.get("required")).contains("body"));
+        }
+
+        @Test
+        void request_body_without_content_ignored() {
+            RequestBody requestBody = new RequestBody();
+            Map<String, Object> result = InputSchemaBuilder.build(null, requestBody);
+            assertFalse(result.containsKey("properties"));
+        }
+
+        @Test
+        void media_type_without_schema_ignored() {
+            MediaType mediaType = new MediaType();
+            Content content = new Content();
+            content.addMediaType("application/json", mediaType);
+            RequestBody requestBody = new RequestBody();
+            requestBody.setContent(content);
+
+            Map<String, Object> result = InputSchemaBuilder.build(null, requestBody);
+            assertFalse(result.containsKey("properties"));
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void body_required_list_merged_without_duplicates() {
+            Parameter pathParam = new Parameter().name("name").in("path").required(true)
+                    .schema(new StringSchema());
+
+            ObjectSchema bodySchema = new ObjectSchema();
+            bodySchema.addProperty("name", new StringSchema());
+            bodySchema.addProperty("content", new StringSchema());
+            bodySchema.setRequired(List.of("name", "content"));
+
+            MediaType mediaType = new MediaType();
+            mediaType.setSchema(bodySchema);
+            Content content = new Content();
+            content.addMediaType("application/json", mediaType);
+            RequestBody requestBody = new RequestBody();
+            requestBody.setContent(content);
+
+            Map<String, Object> result = InputSchemaBuilder.build(List.of(pathParam), requestBody);
+            List<String> required = (List<String>) result.get("required");
+            assertEquals(List.of("name", "content"), required);
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void param_without_location_gets_plain_description() {
+            Parameter param = new Parameter()
+                    .name("q")
+                    .description("free text")
+                    .schema(new StringSchema());
+
+            Map<String, Object> result = InputSchemaBuilder.build(List.of(param), null);
+            Map<String, Object> props = (Map<String, Object>) result.get("properties");
+            Map<String, Object> qSchema = (Map<String, Object>) props.get("q");
+            assertEquals("free text", qSchema.get("description"));
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void param_without_description_or_location_keeps_schema_description_absent() {
+            Parameter param = new Parameter()
+                    .name("q")
+                    .schema(new StringSchema());
+
+            Map<String, Object> result = InputSchemaBuilder.build(List.of(param), null);
+            Map<String, Object> props = (Map<String, Object>) result.get("properties");
+            Map<String, Object> qSchema = (Map<String, Object>) props.get("q");
+            assertFalse(qSchema.containsKey("description"));
+        }
+
+        @Test
         void param_without_schema_defaults_to_string() {
             Parameter param = new Parameter()
                     .name("filter")

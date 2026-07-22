@@ -105,4 +105,64 @@ class CloudflareRestClientTest {
                 () -> CloudflareRestClient.checkSuccess(json));
         assertTrue(ex.getMessage().contains("Zone not found"));
     }
+
+    @Test
+    void checkSuccessJoinsMultipleErrorMessages() {
+        String json = """
+                {"success": false, "errors": [{"message": "first"}, {"code": 42}]}
+                """;
+        var ex = assertThrows(CloudflareRestClient.CloudflareApiException.class,
+                () -> CloudflareRestClient.checkSuccess(json));
+        assertTrue(ex.getMessage().contains("first"));
+        assertTrue(ex.getMessage().contains("42"), "errors without message fall back to raw JSON");
+    }
+
+    @Test
+    void checkSuccessFailsWithoutErrorsArray() {
+        var ex = assertThrows(CloudflareRestClient.CloudflareApiException.class,
+                () -> CloudflareRestClient.checkSuccess("{\"success\": false}"));
+        assertTrue(ex.getMessage().contains("success=false"));
+    }
+
+    @Test
+    void checkSuccessAcceptsSuccessTrueAndMissingSuccess() {
+        assertDoesNotThrow(() -> CloudflareRestClient.checkSuccess("{\"success\": true}"));
+        assertDoesNotThrow(() -> CloudflareRestClient.checkSuccess("{\"result\": []}"));
+    }
+
+    @Test
+    void checkSuccessWrapsMalformedJson() {
+        var ex = assertThrows(CloudflareRestClient.CloudflareApiException.class,
+                () -> CloudflareRestClient.checkSuccess("not json"));
+        assertTrue(ex.getMessage().startsWith("Failed to check API response"));
+    }
+
+    @Test
+    void parseWrapsMalformedPayload() {
+        // valid JSON envelope, but result entries missing mandatory fields
+        var ex = assertThrows(CloudflareRestClient.CloudflareApiException.class,
+                () -> CloudflareRestClient.parseZoneListResponse("{\"success\": true, \"result\": [{}]}"));
+        assertTrue(ex.getMessage().startsWith("Failed to parse zone list"));
+    }
+
+    @Test
+    void parsesSettingValueVariants() {
+        assertEquals(true, CloudflareRestClient.parseSettingResponse(
+                "{\"success\": true, \"result\": {\"id\": \"x\", \"value\": true}}").get("value"));
+        assertEquals(5, CloudflareRestClient.parseSettingResponse(
+                "{\"success\": true, \"result\": {\"id\": \"x\", \"value\": 5}}").get("value"));
+        assertEquals("{\"a\":1}", CloudflareRestClient.parseSettingResponse(
+                "{\"success\": true, \"result\": {\"id\": \"x\", \"value\": {\"a\":1}}}").get("value"));
+        assertFalse(CloudflareRestClient.parseSettingResponse(
+                "{\"success\": true, \"result\": {\"id\": \"x\"}}").containsKey("value"));
+    }
+
+    @Test
+    void apiExceptionCarriesStatusCode() {
+        var httpError = new CloudflareRestClient.CloudflareApiException("HTTP 404: gone", 404);
+        assertEquals(404, httpError.statusCode());
+        assertEquals(-1, new CloudflareRestClient.CloudflareApiException("other").statusCode());
+        assertEquals(-1, new CloudflareRestClient.CloudflareApiException("other", new RuntimeException())
+                .statusCode());
+    }
 }

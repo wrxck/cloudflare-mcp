@@ -14,11 +14,15 @@ final class Install {
     private Install() {}
 
     static void run(String claudeBinary) {
+        run(claudeBinary, System.getenv("CLOUDFLARE_API_TOKEN"), findJarPath());
+    }
+
+    /** Testable variant with the environment-derived inputs injected. */
+    static void run(String claudeBinary, String token, String jarPath) {
         System.out.println("Cloudflare MCP Server — Installation");
         System.out.println("====================================");
         System.out.println();
 
-        String token = System.getenv("CLOUDFLARE_API_TOKEN");
         if (token == null || token.isBlank()) {
             System.out.println("CLOUDFLARE_API_TOKEN is not set.");
             System.out.println();
@@ -29,15 +33,12 @@ final class Install {
             System.out.println("  4. Copy the token and set it:");
             System.out.println("     export CLOUDFLARE_API_TOKEN='your-token-here'");
             System.out.println();
-            String v = Install.class.getPackage().getImplementationVersion();
-            String jar = "cloudflare-mcp-" + (v != null ? v : "1.0.1") + ".jar";
-            System.out.println("Then re-run: java -jar " + jar + " --install");
+            System.out.println("Then re-run: java -jar " + defaultJarName() + " --install");
             return;
         }
 
         System.out.println("[ok] CLOUDFLARE_API_TOKEN is set");
 
-        String jarPath = findJarPath();
         if (jarPath == null) {
             System.err.println("Could not determine JAR path. Register manually:");
             printManualInstructions();
@@ -106,8 +107,11 @@ final class Install {
         System.out.println();
         System.out.println("Manual registration:");
         System.out.println("  claude mcp add --scope user --transport stdio cloudflare -- \\");
+        System.out.println("    java -jar /path/to/" + defaultJarName());
+    }
+
+    private static String defaultJarName() {
         String v = Install.class.getPackage().getImplementationVersion();
-        String jar = "cloudflare-mcp-" + (v != null ? v : "1.0.1") + ".jar";
-        System.out.println("    java -jar /path/to/" + jar);
+        return "cloudflare-mcp-" + (v != null ? v : "1.0.1") + ".jar";
     }
 }

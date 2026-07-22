@@ -2,10 +2,8 @@ package com.cloudflare.mcp;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.models.Operation;
-import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.parameters.Parameter;
-import io.swagger.v3.oas.models.parameters.RequestBody;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -21,13 +19,18 @@ final class RequestBuilder {
     private static final String BASE_URL = "https://api.cloudflare.com/client/v4";
 
     private final CloudflareAuth auth;
-    private final int connectTimeoutSeconds;
     private final int requestTimeoutSeconds;
+    private final String baseUrl;
 
-    RequestBuilder(CloudflareAuth auth, int connectTimeoutSeconds, int requestTimeoutSeconds) {
+    RequestBuilder(CloudflareAuth auth, int requestTimeoutSeconds) {
+        this(auth, requestTimeoutSeconds, BASE_URL);
+    }
+
+    /** Test-only constructor allowing the API base URL to be overridden. */
+    RequestBuilder(CloudflareAuth auth, int requestTimeoutSeconds, String baseUrl) {
         this.auth = auth;
-        this.connectTimeoutSeconds = connectTimeoutSeconds;
         this.requestTimeoutSeconds = requestTimeoutSeconds;
+        this.baseUrl = baseUrl;
     }
 
     HttpRequest build(String path, String method, Operation operation, Map<String, Object> args) {
@@ -35,7 +38,7 @@ final class RequestBuilder {
 
         String resolvedPath = substitutePath(path, operation, args);
         String queryString = buildQueryString(operation, args);
-        String url = BASE_URL + resolvedPath;
+        String url = baseUrl + resolvedPath;
         if (!queryString.isEmpty()) {
             url += "?" + queryString;
         }
@@ -55,7 +58,7 @@ final class RequestBuilder {
             default -> {
                 String body = buildRequestBody(operation, args);
                 if (body != null) {
-                    builder.header("Content-Type", getContentType(operation));
+                    builder.header("Content-Type", RequestBodies.selectContentType(operation.getRequestBody()));
                     builder.method(upperMethod, HttpRequest.BodyPublishers.ofString(body));
                 } else {
                     builder.method(upperMethod, HttpRequest.BodyPublishers.noBody());
@@ -106,51 +109,31 @@ final class RequestBuilder {
         return sb.toString();
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
     private String buildRequestBody(Operation operation, Map<String, Object> args) {
-        RequestBody requestBody = operation.getRequestBody();
-        if (requestBody == null) return null;
+        MediaType mediaType = RequestBodies.selectMediaType(operation.getRequestBody());
+        if (mediaType == null || mediaType.getSchema() == null) return null;
 
-        Content content = requestBody.getContent();
-        if (content == null || content.isEmpty()) return null;
-
-        MediaType mediaType = content.get("application/json");
-        if (mediaType == null) {
-            mediaType = content.values().iterator().next();
-        }
-
-        var bodySchema = mediaType.getSchema();
-        if (bodySchema == null) return null;
-
+        // Interpret the schema exactly as InputSchemaBuilder advertised it, so every
+        // argument the tool exposes is honored here.
+        Map<String, Object> converted = SchemaConverter.convert(mediaType.getSchema());
         try {
-            if ("object".equals(bodySchema.getType()) || bodySchema.getProperties() != null) {
+            if (RequestBodies.flattensIntoProperties(converted)) {
+                @SuppressWarnings("unchecked")
+                var properties = (Map<String, Object>) converted.get("properties");
                 var bodyMap = new LinkedHashMap<String, Object>();
-                if (bodySchema.getProperties() != null) {
-                    for (Object key : bodySchema.getProperties().keySet()) {
-                        String name = (String) key;
-                        if (args.containsKey(name)) {
-                            bodyMap.put(name, args.get(name));
-                        }
+                for (String name : properties.keySet()) {
+                    if (args.containsKey(name)) {
+                        bodyMap.put(name, args.get(name));
                     }
                 }
                 return bodyMap.isEmpty() ? null : OBJECT_MAPPER.writeValueAsString(bodyMap);
             } else {
-                Object bodyValue = args.get("body");
+                Object bodyValue = args.get(RequestBodies.RAW_BODY_ARG);
                 if (bodyValue == null) return null;
                 return OBJECT_MAPPER.writeValueAsString(bodyValue);
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize request body", e);
         }
-    }
-
-    private String getContentType(Operation operation) {
-        if (operation.getRequestBody() != null && operation.getRequestBody().getContent() != null) {
-            if (operation.getRequestBody().getContent().containsKey("application/json")) {
-                return "application/json";
-            }
-            return operation.getRequestBody().getContent().keySet().iterator().next();
-        }
-        return "application/json";
     }
 }

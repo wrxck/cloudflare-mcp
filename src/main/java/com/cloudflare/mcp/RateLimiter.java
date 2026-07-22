@@ -2,54 +2,54 @@ package com.cloudflare.mcp;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.time.InstantSource;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 public final class RateLimiter {
 
     private final int maxPerMinute;
-    private final ConcurrentLinkedDeque<Instant> timestamps = new ConcurrentLinkedDeque<>();
+    private final InstantSource clock;
+    private final Deque<Instant> timestamps = new ArrayDeque<>();
 
     public RateLimiter(int maxPerMinute) {
-        this.maxPerMinute = maxPerMinute;
+        this(maxPerMinute, InstantSource.system());
     }
 
     public RateLimiter() {
         this(240);
     }
 
-    public void checkAndRecord() {
-        Instant now = Instant.now();
+    /** Test-only constructor allowing the clock to be overridden. */
+    RateLimiter(int maxPerMinute, InstantSource clock) {
+        this.maxPerMinute = maxPerMinute;
+        this.clock = clock;
+    }
+
+    public synchronized void checkAndRecord() {
+        Instant now = clock.instant();
         purgeOld(now);
 
-        long lastMinute = timestamps.stream()
-                .filter(t -> Duration.between(t, now).toSeconds() < 60)
-                .count();
-        if (lastMinute >= maxPerMinute) {
+        if (timestamps.size() >= maxPerMinute) {
             throw new RateLimitExceededException(
                     "Rate limit exceeded: %d requests in the last minute (max %d). Wait before retrying."
-                            .formatted(lastMinute, maxPerMinute));
+                            .formatted(timestamps.size(), maxPerMinute));
         }
 
         timestamps.addLast(now);
     }
 
+    /** Removes timestamps older than one minute; everything remaining is in-window. */
     private void purgeOld(Instant now) {
-        while (!timestamps.isEmpty()) {
-            Instant oldest = timestamps.peekFirst();
-            if (oldest != null && Duration.between(oldest, now).toSeconds() >= 60) {
-                timestamps.pollFirst();
-            } else {
-                break;
-            }
+        while (!timestamps.isEmpty()
+                && Duration.between(timestamps.peekFirst(), now).toSeconds() >= 60) {
+            timestamps.pollFirst();
         }
     }
 
-    public int getRequestCountLastMinute() {
-        Instant now = Instant.now();
-        purgeOld(now);
-        return (int) timestamps.stream()
-                .filter(t -> Duration.between(t, now).toSeconds() < 60)
-                .count();
+    public synchronized int getRequestCountLastMinute() {
+        purgeOld(clock.instant());
+        return timestamps.size();
     }
 
     public static final class RateLimitExceededException extends RuntimeException {

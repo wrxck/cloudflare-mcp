@@ -49,4 +49,16 @@ class CloudflareAuthTest {
         assertThrows(IllegalArgumentException.class,
                 () -> CloudflareAuth.globalApiKey("key", null));
     }
+
+    @Test
+    void globalKeyAuthRejectsBlankKey() {
+        assertThrows(IllegalArgumentException.class,
+                () -> CloudflareAuth.globalApiKey("  ", "user@example.com"));
+    }
+
+    @Test
+    void globalKeyAuthRejectsBlankEmail() {
+        assertThrows(IllegalArgumentException.class,
+                () -> CloudflareAuth.globalApiKey("key", "  "));
+    }
 }

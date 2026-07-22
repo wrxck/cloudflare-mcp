@@ -29,21 +29,19 @@ class ResultHelperTest {
             CallToolResult result = ResultHelper.sanitizedResult("{\"ok\":true}", 50000);
             assertFalse(result.isError());
         }
-    }
-
-    @Nested
-    class TextResult {
 
         @Test
-        void returns_single_content() {
-            CallToolResult result = ResultHelper.textResult("hello");
-            assertEquals(1, result.content().size());
-        }
-
-        @Test
-        void is_not_error() {
-            CallToolResult result = ResultHelper.textResult("hello");
-            assertFalse(result.isError());
+        void oversized_body_truncated_exactly_once() {
+            CallToolResult result = ResultHelper.sanitizedResult("x".repeat(200), 100);
+            String wrapped = result.content().get(1).toString();
+            int markers = 0;
+            int idx = 0;
+            while ((idx = wrapped.indexOf("[truncated at", idx)) != -1) {
+                markers++;
+                idx++;
+            }
+            assertEquals(1, markers,
+                    "truncation marker must appear exactly once, content: " + wrapped);
         }
     }
 

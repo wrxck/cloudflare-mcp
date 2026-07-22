@@ -94,6 +94,28 @@ class ServerConfigTest {
         }
 
         @Test
+        void parses_exclude_paths_and_methods() {
+            ServerConfig config = ServerConfig.fromArgs(new String[]{
+                    "--exclude-paths", "/zones/**",
+                    "--exclude-methods", "DELETE"});
+            assertEquals(List.of("/zones/**"), config.excludePaths());
+            assertEquals(List.of("DELETE"), config.excludeMethods());
+        }
+
+        @Test
+        void csv_entries_are_trimmed_and_blanks_dropped() {
+            ServerConfig config = ServerConfig.fromArgs(new String[]{
+                    "--include-tags", " Zones , , DNS Records ,"});
+            assertEquals(List.of("Zones", "DNS Records"), config.includeTags());
+        }
+
+        @Test
+        void unknown_args_are_ignored() {
+            ServerConfig config = ServerConfig.fromArgs(new String[]{"--bogus-flag"});
+            assertFalse(config.install());
+        }
+
+        @Test
         void tags_list_is_immutable() {
             ServerConfig config = ServerConfig.fromArgs(new String[]{"--include-tags", "DNS Records"});
             assertThrows(UnsupportedOperationException.class, () ->
@@ -134,6 +156,33 @@ class ServerConfigTest {
         }
 
         @Test
+        void key_without_email_falls_back_to_token() {
+            var config = new ServerConfig(
+                    false, "claude", "my-token", "my-key", null,
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    240, 50000, 10, 30);
+            assertInstanceOf(CloudflareAuth.ApiToken.class, config.resolveAuth());
+        }
+
+        @Test
+        void email_without_key_falls_back_to_token() {
+            var config = new ServerConfig(
+                    false, "claude", "my-token", null, "me@example.com",
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    240, 50000, 10, 30);
+            assertInstanceOf(CloudflareAuth.ApiToken.class, config.resolveAuth());
+        }
+
+        @Test
+        void blank_token_yields_null() {
+            var config = new ServerConfig(
+                    false, "claude", "   ", null, null,
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                    240, 50000, 10, 30);
+            assertNull(config.resolveAuth());
+        }
+
+        @Test
         void ignores_blank_api_key() {
             var config = new ServerConfig(
                     false, "claude", "my-token", "  ", "",
@@ -168,6 +217,15 @@ class ServerConfigTest {
         @Test
         void plain_string_unchanged() {
             assertEquals("hello", ServerConfig.resolveEnvVars("hello"));
+        }
+
+        @Test
+        void substitutes_var_embedded_in_text() {
+            String result = ServerConfig.resolveEnvVars("pre-${PATH}-post");
+            assertNotNull(result);
+            assertTrue(result.startsWith("pre-"));
+            assertTrue(result.endsWith("-post"));
+            assertFalse(result.contains("${"));
         }
     }
 }

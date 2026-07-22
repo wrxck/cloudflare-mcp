@@ -44,18 +44,7 @@ public class CloudflareMcpServer {
                 System.exit(1);
             }
 
-            OpenAPI openAPI = SpecLoader.load();
-            log.info("Loaded Cloudflare API spec ({} paths)", openAPI.getPaths().size());
-
-            RateLimiter rateLimiter = new RateLimiter(config.maxRequestsPerMinute());
-            RequestBuilder requestBuilder = new RequestBuilder(
-                    auth, config.connectTimeoutSeconds(), config.requestTimeoutSeconds());
-            HttpApiClient apiClient = new HttpApiClient(
-                    requestBuilder, rateLimiter, config.connectTimeoutSeconds(), config.maxResponseLength());
-
-            OperationFilter filter = new OperationFilter(config);
-            ToolGenerator generator = new ToolGenerator(filter, apiClient);
-            List<SyncToolSpecification> tools = generator.generate(openAPI);
+            List<SyncToolSpecification> tools = createTools(config, auth);
 
             if (tools.isEmpty()) {
                 log.error("No tools generated. Check --include-tags / --exclude-tags filters.");
@@ -64,9 +53,24 @@ public class CloudflareMcpServer {
 
             startServer(tools);
         } catch (Exception e) {
-            log.error("Failed to start Cloudflare MCP server: {}", e.getMessage());
+            log.error("Failed to start Cloudflare MCP server: {}", e.getMessage(), e);
             System.exit(1);
         }
+    }
+
+    /** Wires the API client stack and generates tools from the bundled spec. */
+    static List<SyncToolSpecification> createTools(ServerConfig config, CloudflareAuth auth) {
+        OpenAPI openAPI = SpecLoader.load();
+        log.info("Loaded Cloudflare API spec ({} paths)", openAPI.getPaths().size());
+
+        RateLimiter rateLimiter = new RateLimiter(config.maxRequestsPerMinute());
+        RequestBuilder requestBuilder = new RequestBuilder(auth, config.requestTimeoutSeconds());
+        HttpApiClient apiClient = new HttpApiClient(
+                requestBuilder, rateLimiter, config.connectTimeoutSeconds(), config.maxResponseLength());
+
+        OperationFilter filter = new OperationFilter(config);
+        ToolGenerator generator = new ToolGenerator(filter, apiClient);
+        return generator.generate(openAPI);
     }
 
     private static void startServer(List<SyncToolSpecification> tools) {

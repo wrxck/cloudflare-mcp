@@ -32,11 +32,18 @@ public final class CloudflareRestClient {
     private final String accountId;
     private final RateLimiter rateLimiter;
     private final HttpClient httpClient;
+    private final String baseUrl;
 
     public CloudflareRestClient(CloudflareAuth auth, String accountId, RateLimiter rateLimiter) {
+        this(auth, accountId, rateLimiter, BASE_URL);
+    }
+
+    /** Test-only constructor allowing the API base URL to be overridden. */
+    CloudflareRestClient(CloudflareAuth auth, String accountId, RateLimiter rateLimiter, String baseUrl) {
         this.auth = auth;
         this.accountId = accountId;
         this.rateLimiter = rateLimiter;
+        this.baseUrl = baseUrl;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -71,10 +78,11 @@ public final class CloudflareRestClient {
     }
 
     public Map<String, Object> createZone(String domain) {
-        String body = """
-                {"name": "%s", "account": {"id": "%s"}, "type": "full"}
-                """.formatted(domain, accountId);
-        String json = post("/zones", body);
+        var body = new LinkedHashMap<String, Object>();
+        body.put("name", domain);
+        body.put("account", Map.of("id", accountId));
+        body.put("type", "full");
+        String json = post("/zones", toJson(body));
         return parseZoneResponse(json);
     }
 
@@ -104,14 +112,11 @@ public final class CloudflareRestClient {
         body.put("ttl", proxied ? 1 : ttl);
         if (priority != null) body.put("priority", priority);
 
-        try {
-            String json = post("/zones/" + zoneId + "/dns_records", MAPPER.writeValueAsString(body));
+        return parsing("Failed to create DNS record", () -> {
+            String json = post("/zones/" + zoneId + "/dns_records", toJson(body));
             checkSuccess(json);
             return body;
-        } catch (Exception e) {
-            if (e instanceof CloudflareApiException) throw (CloudflareApiException) e;
-            throw new CloudflareApiException("Failed to create DNS record: " + e.getMessage(), e);
-        }
+        });
     }
 
     // --- Settings operations ---
@@ -122,15 +127,11 @@ public final class CloudflareRestClient {
     }
 
     public Map<String, Object> updateSetting(String zoneId, String settingId, Object value) {
-        try {
-            String body = MAPPER.writeValueAsString(Map.of("value", value));
+        return parsing("Failed to update setting " + settingId, () -> {
+            String body = toJson(Map.of("value", value));
             String json = patch("/zones/" + zoneId + "/settings/" + settingId, body);
             return parseSettingResponse(json);
-        } catch (CloudflareApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new CloudflareApiException("Failed to update setting " + settingId + ": " + e.getMessage(), e);
-        }
+        });
     }
 
     // --- DNSSEC ---
@@ -158,10 +159,11 @@ public final class CloudflareRestClient {
      */
     public Map<String, Object> deployManagedRuleset(String zoneId, String phase,
                                                       String managedRulesetId) {
-        String body = """
-                {"rules":[{"action":"execute","expression":"true",\
-                "action_parameters":{"id":"%s"}}]}
-                """.formatted(managedRulesetId);
+        var rule = new LinkedHashMap<String, Object>();
+        rule.put("action", "execute");
+        rule.put("expression", "true");
+        rule.put("action_parameters", Map.of("id", managedRulesetId));
+        String body = toJson(Map.of("rules", List.of(rule)));
         String json = put("/zones/" + zoneId + "/rulesets/phases/" + phase + "/entrypoint", body);
         checkSuccess(json);
         return Map.of("phase", phase, "status", "deployed");
@@ -171,15 +173,14 @@ public final class CloudflareRestClient {
      * Get the entrypoint ruleset for a zone phase. Returns null if none deployed.
      */
     public JsonNode getEntrypointRuleset(String zoneId, String phase) {
+        String json;
         try {
-            String json = get("/zones/" + zoneId + "/rulesets/phases/" + phase + "/entrypoint");
-            return MAPPER.readTree(json).get("result");
+            json = get("/zones/" + zoneId + "/rulesets/phases/" + phase + "/entrypoint");
         } catch (CloudflareApiException e) {
-            if (e.getMessage().contains("404")) return null;
+            if (e.statusCode() == 404) return null;
             throw e;
-        } catch (Exception e) {
-            throw new CloudflareApiException("Failed to parse entrypoint ruleset: " + e.getMessage(), e);
         }
+        return parsing("Failed to parse entrypoint ruleset", () -> MAPPER.readTree(json).get("result"));
     }
 
     /**
@@ -187,11 +188,10 @@ public final class CloudflareRestClient {
      */
     public List<Map<String, Object>> listAccountRulesets() {
         String json = get("/accounts/" + accountId + "/rulesets");
-        try {
-            JsonNode root = MAPPER.readTree(json);
-            checkSuccess(json);
+        checkSuccess(json);
+        return parsing("Failed to parse rulesets", () -> {
             var result = new ArrayList<Map<String, Object>>();
-            for (JsonNode rs : root.get("result")) {
+            for (JsonNode rs : MAPPER.readTree(json).get("result")) {
                 var r = new LinkedHashMap<String, Object>();
                 r.put("id", rs.get("id").asText());
                 r.put("name", rs.has("name") ? rs.get("name").asText() : "");
@@ -200,19 +200,14 @@ public final class CloudflareRestClient {
                 result.add(r);
             }
             return result;
-        } catch (CloudflareApiException e) { throw e; }
-        catch (Exception e) { throw new CloudflareApiException("Failed to parse rulesets: " + e.getMessage(), e); }
+        });
     }
 
     // --- Managed Transforms ---
 
     public JsonNode getManagedHeaders(String zoneId) {
-        try {
-            String json = get("/zones/" + zoneId + "/managed_headers");
-            return MAPPER.readTree(json);
-        } catch (Exception e) {
-            throw new CloudflareApiException("Failed to get managed headers: " + e.getMessage(), e);
-        }
+        return parsing("Failed to get managed headers", () ->
+                MAPPER.readTree(get("/zones/" + zoneId + "/managed_headers")));
     }
 
     /**
@@ -221,46 +216,44 @@ public final class CloudflareRestClient {
      */
     public Map<String, Object> enableManagedTransforms(String zoneId, List<String> requestTransformIds,
                                                          List<String> responseTransformIds) {
-        try {
+        return parsing("Failed to update managed transforms", () -> {
             JsonNode current = getManagedHeaders(zoneId);
             var enabled = new ArrayList<String>();
-
-            // Build updated arrays
-            var reqHeaders = new ArrayList<Map<String, Object>>();
-            var resHeaders = new ArrayList<Map<String, Object>>();
-
-            if (current.has("managed_request_headers")) {
-                for (JsonNode h : current.get("managed_request_headers")) {
-                    var entry = new LinkedHashMap<String, Object>();
-                    String id = h.get("id").asText();
-                    entry.put("id", id);
-                    boolean shouldEnable = requestTransformIds.contains(id);
-                    entry.put("enabled", shouldEnable || h.get("enabled").asBoolean());
-                    if (shouldEnable) enabled.add(id);
-                    reqHeaders.add(entry);
-                }
-            }
-            if (current.has("managed_response_headers")) {
-                for (JsonNode h : current.get("managed_response_headers")) {
-                    var entry = new LinkedHashMap<String, Object>();
-                    String id = h.get("id").asText();
-                    entry.put("id", id);
-                    boolean shouldEnable = responseTransformIds.contains(id);
-                    entry.put("enabled", shouldEnable || h.get("enabled").asBoolean());
-                    if (shouldEnable) enabled.add(id);
-                    resHeaders.add(entry);
-                }
-            }
+            var reqHeaders = collectTransforms(
+                    current.get("managed_request_headers"), requestTransformIds, enabled);
+            var resHeaders = collectTransforms(
+                    current.get("managed_response_headers"), responseTransformIds, enabled);
 
             var body = new LinkedHashMap<String, Object>();
             body.put("managed_request_headers", reqHeaders);
             body.put("managed_response_headers", resHeaders);
-            String json = patch("/zones/" + zoneId + "/managed_headers", MAPPER.writeValueAsString(body));
+            String json = patch("/zones/" + zoneId + "/managed_headers", toJson(body));
             checkSuccess(json);
 
             return Map.of("enabled", enabled);
-        } catch (CloudflareApiException e) { throw e; }
-        catch (Exception e) { throw new CloudflareApiException("Failed to update managed transforms: " + e.getMessage(), e); }
+        });
+    }
+
+    /**
+     * Copies the current transform entries, switching on the ones whose IDs were
+     * requested (already-enabled entries stay enabled). Requested IDs are appended
+     * to {@code enabledOut}.
+     */
+    private static List<Map<String, Object>> collectTransforms(JsonNode currentHeaders,
+                                                               List<String> requestedIds,
+                                                               List<String> enabledOut) {
+        var headers = new ArrayList<Map<String, Object>>();
+        if (currentHeaders == null) return headers;
+        for (JsonNode h : currentHeaders) {
+            var entry = new LinkedHashMap<String, Object>();
+            String id = h.get("id").asText();
+            entry.put("id", id);
+            boolean shouldEnable = requestedIds.contains(id);
+            entry.put("enabled", shouldEnable || h.get("enabled").asBoolean());
+            if (shouldEnable) enabledOut.add(id);
+            headers.add(entry);
+        }
+        return headers;
     }
 
     // --- URL Normalization ---
@@ -285,7 +278,7 @@ public final class CloudflareRestClient {
         rateLimiter.checkAndRecord();
         try {
             var builder = HttpRequest.newBuilder()
-                    .uri(URI.create(BASE_URL + path))
+                    .uri(URI.create(baseUrl + path))
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(30));
 
@@ -296,7 +289,6 @@ public final class CloudflareRestClient {
                 case "POST" -> builder.POST(HttpRequest.BodyPublishers.ofString(body)).build();
                 case "PATCH" -> builder.method("PATCH", HttpRequest.BodyPublishers.ofString(body)).build();
                 case "PUT" -> builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
-                case "DELETE" -> builder.DELETE().build();
                 default -> throw new IllegalArgumentException("Unknown method: " + method);
             };
 
@@ -305,7 +297,7 @@ public final class CloudflareRestClient {
 
             if (response.statusCode() >= 400) {
                 throw new CloudflareApiException("HTTP " + response.statusCode() + ": " +
-                        truncate(response.body(), 500));
+                        truncate(response.body(), 500), response.statusCode());
             }
             return response.body();
         } catch (CloudflareApiException e) {
@@ -319,50 +311,38 @@ public final class CloudflareRestClient {
 
     public static List<Map<String, Object>> parseZoneListResponse(String json) {
         checkSuccess(json);
-        try {
-            JsonNode root = MAPPER.readTree(json);
+        return parsing("Failed to parse zone list", () -> {
             var result = new ArrayList<Map<String, Object>>();
-            for (JsonNode zone : root.get("result")) {
-                var z = new LinkedHashMap<String, Object>();
-                z.put("id", zone.get("id").asText());
-                z.put("name", zone.get("name").asText());
-                z.put("status", zone.get("status").asText());
-                var ns = new ArrayList<String>();
-                if (zone.has("name_servers")) {
-                    for (JsonNode n : zone.get("name_servers")) ns.add(n.asText());
-                }
-                z.put("nameServers", ns);
-                result.add(z);
+            for (JsonNode zone : MAPPER.readTree(json).get("result")) {
+                result.add(zoneToMap(zone));
             }
             return result;
-        } catch (CloudflareApiException e) { throw e; }
-        catch (Exception e) { throw new CloudflareApiException("Failed to parse zone list: " + e.getMessage(), e); }
+        });
     }
 
     public static Map<String, Object> parseZoneResponse(String json) {
         checkSuccess(json);
-        try {
-            JsonNode zone = MAPPER.readTree(json).get("result");
-            var z = new LinkedHashMap<String, Object>();
-            z.put("id", zone.get("id").asText());
-            z.put("name", zone.get("name").asText());
-            z.put("status", zone.get("status").asText());
-            var ns = new ArrayList<String>();
-            if (zone.has("name_servers")) {
-                for (JsonNode n : zone.get("name_servers")) ns.add(n.asText());
-            }
-            z.put("nameServers", ns);
-            return z;
-        } catch (CloudflareApiException e) { throw e; }
-        catch (Exception e) { throw new CloudflareApiException("Failed to parse zone: " + e.getMessage(), e); }
+        return parsing("Failed to parse zone", () -> zoneToMap(MAPPER.readTree(json).get("result")));
+    }
+
+    private static Map<String, Object> zoneToMap(JsonNode zone) {
+        var z = new LinkedHashMap<String, Object>();
+        z.put("id", zone.get("id").asText());
+        z.put("name", zone.get("name").asText());
+        z.put("status", zone.get("status").asText());
+        var ns = new ArrayList<String>();
+        if (zone.has("name_servers")) {
+            for (JsonNode n : zone.get("name_servers")) ns.add(n.asText());
+        }
+        z.put("nameServers", ns);
+        return z;
     }
 
     public static List<Map<String, Object>> parseDnsRecordListResponse(String json) {
         checkSuccess(json);
-        try {
-            JsonNode root = MAPPER.readTree(json);
+        return parsing("Failed to parse DNS records", () -> {
             var result = new ArrayList<Map<String, Object>>();
-            for (JsonNode rec : root.get("result")) {
+            for (JsonNode rec : MAPPER.readTree(json).get("result")) {
                 var r = new LinkedHashMap<String, Object>();
                 r.put("id", rec.get("id").asText());
                 r.put("type", rec.get("type").asText());
@@ -374,13 +354,12 @@ public final class CloudflareRestClient {
                 result.add(r);
             }
             return result;
-        } catch (CloudflareApiException e) { throw e; }
-        catch (Exception e) { throw new CloudflareApiException("Failed to parse DNS records: " + e.getMessage(), e); }
+        });
     }
 
     public static Map<String, Object> parseSettingResponse(String json) {
         checkSuccess(json);
-        try {
+        return parsing("Failed to parse setting", () -> {
             JsonNode result = MAPPER.readTree(json).get("result");
             var r = new LinkedHashMap<String, Object>();
             r.put("id", result.get("id").asText());
@@ -392,12 +371,11 @@ public final class CloudflareRestClient {
                 else r.put("value", val.toString());
             }
             return r;
-        } catch (CloudflareApiException e) { throw e; }
-        catch (Exception e) { throw new CloudflareApiException("Failed to parse setting: " + e.getMessage(), e); }
+        });
     }
 
     public static void checkSuccess(String json) {
-        try {
+        parsing("Failed to check API response", () -> {
             JsonNode root = MAPPER.readTree(json);
             if (root.has("success") && !root.get("success").asBoolean()) {
                 JsonNode errors = root.get("errors");
@@ -410,8 +388,31 @@ public final class CloudflareRestClient {
                 }
                 throw new CloudflareApiException("Cloudflare API returned success=false");
             }
-        } catch (CloudflareApiException e) { throw e; }
-        catch (Exception e) { throw new CloudflareApiException("Failed to check API response: " + e.getMessage(), e); }
+            return null;
+        });
+    }
+
+    /**
+     * Runs a parse action, letting CloudflareApiExceptions propagate unchanged and
+     * wrapping any other failure with the given error prefix.
+     */
+    private static <T> T parsing(String errorPrefix, ParseAction<T> action) {
+        try {
+            return action.run();
+        } catch (CloudflareApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CloudflareApiException(errorPrefix + ": " + e.getMessage(), e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ParseAction<T> {
+        T run() throws Exception;
+    }
+
+    private static String toJson(Object value) {
+        return parsing("Failed to serialize request body", () -> MAPPER.writeValueAsString(value));
     }
 
     private static String truncate(String s, int maxLen) {
@@ -419,7 +420,21 @@ public final class CloudflareRestClient {
     }
 
     public static final class CloudflareApiException extends RuntimeException {
-        public CloudflareApiException(String message) { super(message); }
-        public CloudflareApiException(String message, Throwable cause) { super(message, cause); }
+        /** HTTP status code of the failed response, or -1 when not an HTTP-level failure. */
+        private final int statusCode;
+
+        public CloudflareApiException(String message) { this(message, -1); }
+
+        public CloudflareApiException(String message, int statusCode) {
+            super(message);
+            this.statusCode = statusCode;
+        }
+
+        public CloudflareApiException(String message, Throwable cause) {
+            super(message, cause);
+            this.statusCode = -1;
+        }
+
+        public int statusCode() { return statusCode; }
     }
 }

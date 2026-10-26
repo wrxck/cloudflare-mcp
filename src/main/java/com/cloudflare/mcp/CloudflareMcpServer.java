@@ -62,11 +62,31 @@ public class CloudflareMcpServer {
                 System.exit(1);
             }
 
-            startServer(tools);
+            TransportConfig transport = TransportConfig.fromArgs(args);
+            if (transport.http()) {
+                startHttpServer(tools, transport);
+            } else {
+                startServer(tools);
+            }
         } catch (Exception e) {
             log.error("Failed to start Cloudflare MCP server: {}", e.getMessage());
             System.exit(1);
         }
+    }
+
+    private static void startHttpServer(List<SyncToolSpecification> tools, TransportConfig transport)
+            throws Exception {
+        HttpTransportServer server = HttpTransportServer.start(SERVER_NAME, SERVER_VERSION, tools,
+                transport.bindHost(), transport.port(), transport.readToken());
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("Shutting down Cloudflare MCP server");
+            try {
+                server.stop();
+            } catch (Exception e) {
+                log.warn("Error during shutdown: {}", e.getMessage());
+            }
+        }));
+        server.join();
     }
 
     private static void startServer(List<SyncToolSpecification> tools) {

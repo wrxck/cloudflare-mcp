@@ -133,6 +133,29 @@ java -jar cloudflare-mcp.jar --exclude-methods "DELETE"
 | `--max-response-length` | Truncate responses beyond this length | `50000` |
 | `--connect-timeout` | Connection timeout in seconds | `10` |
 | `--request-timeout` | Request timeout in seconds | `30` |
+| `--transport` | `stdio` (one client) or `http` (one shared server for many clients) | `stdio` |
+| `--bind` | Address for `http` | `127.0.0.1` |
+| `--port` | Port for `http` | `7401` |
+| `--auth-token-file` | File with the bearer token; required for `http` | |
+
+### Shared HTTP server
+
+By default each Claude session starts its own copy of the server, about 450 MB each. With `--transport http`, one copy serves every session over MCP streamable HTTP at `/mcp`.
+
+```bash
+java -Xmx384m -XX:+UseSerialGC -jar target/cloudflare-mcp-1.1.0.jar \
+  --transport http --port 7401 --auth-token-file /run/credentials/mcp-cloudflare.service/token
+```
+
+Every request must send `Authorization: Bearer <token>`. The server refuses to start if the token file is readable by every user, or if the token has fewer than 32 characters. Register it in Claude Code with a `headersHelper` that prints the header:
+
+```json
+"cloudflare-mcp": {
+  "type": "http",
+  "url": "http://127.0.0.1:7401/mcp",
+  "headersHelper": "/usr/local/bin/mcp-auth-header cloudflare-mcp"
+}
+```
 
 ### Environment variables
 
@@ -161,6 +184,7 @@ This means Claude will treat DELETE operations with appropriate caution and won'
 - **Rate limiting** — Sliding window rate limiter (default 240/minute, matching Cloudflare's 1,200/5-minute limit).
 - **Timeouts** — Configurable connect timeout (10s) and request timeout (30s) prevent hanging connections.
 - **Input validation** — Required parameters are validated before API calls.
+- **HTTP auth** — In `http` mode, every request needs the bearer token. The compare is constant-time. Bind to `127.0.0.1` only; containers on the host network can reach loopback, and the token is what keeps them out.
 
 ## Building from source
 
